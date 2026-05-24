@@ -108,7 +108,7 @@ pizza-bi-dashboard/
 
 I'm a career switcher building a four-project BI portfolio targeting entry-level analyst roles. This is project one of four; the next three will cover cohort/retention analysis, an operational dashboard with dbt transformations, and a creative Tableau Public viz.
 
-**LinkedIn:** *[add your URL here]*
+
 
 ---
 
