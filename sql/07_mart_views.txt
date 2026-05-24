@@ -1,0 +1,86 @@
+-- vw_daily_revenue: one row per day with running total and prior-period comparison
+DROP VIEW IF EXISTS mart.vw_daily_revenue;
+GO
+
+CREATE VIEW mart.vw_daily_revenue AS
+SELECT
+    d.date_key,
+    d.year,
+    d.quarter,
+    d.quarter_label,
+    d.month_num,
+    d.month_name,
+    d.day_name,
+    d.is_weekend,
+    d.season,
+    COUNT(DISTINCT fo.order_id)                                       AS daily_orders,
+    SUM(fo.order_revenue)                                             AS daily_revenue,
+    SUM(fo.total_pizzas)                                              AS daily_pizzas,
+    AVG(fo.order_revenue)                                             AS daily_avg_ticket,
+    -- Window function: 7-day rolling average revenue
+    AVG(SUM(fo.order_revenue)) OVER (
+        ORDER BY d.date_key
+        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+    )                                                                  AS revenue_7day_avg,
+    -- Window function: cumulative YTD revenue
+    SUM(SUM(fo.order_revenue)) OVER (
+        ORDER BY d.date_key
+        ROWS UNBOUNDED PRECEDING
+    )                                                                  AS revenue_ytd_cumulative
+FROM dim.dim_date d
+LEFT JOIN fact.fact_order fo ON d.date_key = fo.date_key
+GROUP BY d.date_key, d.year, d.quarter, d.quarter_label,
+         d.month_num, d.month_name, d.day_name, d.is_weekend, d.season;
+GO
+
+
+-- vw_hourly_pattern: heatmap data for day-of-week × hour-of-day
+DROP VIEW IF EXISTS mart.vw_hourly_pattern;
+GO
+
+CREATE VIEW mart.vw_hourly_pattern AS
+SELECT
+    d.day_of_week_num,
+    d.day_name,
+    d.day_short,
+    t.hour_24,
+    t.hour_label,
+    t.daypart,
+    COUNT(DISTINCT fo.order_id)        AS order_count,
+    SUM(fo.order_revenue)              AS revenue,
+    AVG(fo.order_revenue)              AS avg_ticket
+FROM dim.dim_date d
+CROSS JOIN dim.dim_time t
+LEFT JOIN fact.fact_order fo
+    ON fo.date_key = d.date_key
+   AND fo.order_hour = t.hour_24
+GROUP BY d.day_of_week_num, d.day_name, d.day_short,
+         t.hour_24, t.hour_label, t.daypart;
+GO
+
+
+-- vw_category_performance: revenue breakdown by category and size
+DROP VIEW IF EXISTS mart.vw_category_performance;
+GO
+
+CREATE VIEW mart.vw_category_performance AS
+SELECT
+    dp.category,
+    dp.size_code,
+    dp.size_label,
+    dp.size_order,
+    COUNT(DISTINCT fol.order_id)                          AS orders_with_item,
+    SUM(fol.quantity)                                     AS pizzas_sold,
+    SUM(fol.line_revenue)                                 AS revenue,
+    -- Window function: this category-size's % of total revenue
+    SUM(fol.line_revenue) * 100.0 /
+        SUM(SUM(fol.line_revenue)) OVER ()                AS pct_of_total_revenue,
+    -- Window function: rank within category
+    RANK() OVER (
+        PARTITION BY dp.category
+        ORDER BY SUM(fol.line_revenue) DESC
+    )                                                     AS rank_within_category
+FROM fact.fact_order_line fol
+INNER JOIN dim.dim_pizza dp ON fol.pizza_id = dp.pizza_id
+GROUP BY dp.category, dp.size_code, dp.size_label, dp.size_order;
+GO
